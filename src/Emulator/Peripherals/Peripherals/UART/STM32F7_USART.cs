@@ -19,13 +19,14 @@ namespace Antmicro.Renode.Peripherals.UART
     [AllowedTranslations(AllowedTranslation.ByteToDoubleWord | AllowedTranslation.WordToDoubleWord)]
     public sealed class STM32F7_USART : UARTBase, IUARTWithBufferState, IDoubleWordPeripheral, IKnownSize
     {
-        public STM32F7_USART(IMachine machine, uint frequency, bool lowPowerMode = false) : base(machine)
+        public STM32F7_USART(IMachine machine, uint frequency, bool lowPowerMode = false, bool hasPrescaler = false) : base(machine)
         {
             IRQ = new GPIO();
             ReceiveDmaRequest = new GPIO();
             RegistersCollection = new DoubleWordRegisterCollection(this);
             this.frequency = frequency;
             this.lowPowerMode = lowPowerMode;
+            this.hasPrescaler = hasPrescaler;
             this.machine = machine;
             DefineRegisters();
             ConfigureReceiverThread();
@@ -65,7 +66,7 @@ namespace Antmicro.Renode.Peripherals.UART
         }
 
         public override uint BaudRate =>
-            BaudRateMultiplier * frequency / Math.Max(1, BaudRateDivisor);
+            BaudRateMultiplier * (frequency / ClockPrescaler) / Math.Max(1, BaudRateDivisor);
 
         public override Bits StopBits
         {
@@ -234,6 +235,13 @@ namespace Antmicro.Renode.Peripherals.UART
                     BaudRateChanged();
                 }, name: "BRR")
                 .WithReservedBits(lowPowerMode ? 20 : 16, lowPowerMode ? 12 : 16);
+
+            if(hasPrescaler)
+            {
+                Registers.Prescaler.Define(RegistersCollection)
+                    .WithValueField(0, 4, out prescaler, writeCallback: (_, __) => BaudRateChanged(), name: "PRESCALER")
+                    .WithReservedBits(4, 28);
+            }
 
             var request = Registers.Request.Define(RegistersCollection)
                 .WithFlag(1, FieldMode.Write, name: "SBKRQ")
@@ -502,6 +510,12 @@ namespace Antmicro.Renode.Peripherals.UART
 
         private uint BaudRateMultiplier => lowPowerMode ? 256u : Over8 ? 2u : 1u;
 
+        // PRESCALER divides the kernel clock: 0..11 -> 1, 2, 4, 6, 8, 10, 12, 16, 32, 64, 128, 256,
+        // larger values -> 256 (stm32l4xx_ll_usart.h USART_PRESCALER_TAB, stm32l4xx_ll_lpuart.h LPUART_PRESCALER_TAB)
+        private uint ClockPrescaler => prescaler == null ? 1u : PrescalerDivisors[Math.Min((int)prescaler.Value, PrescalerDivisors.Length - 1)];
+
+        private static readonly uint[] PrescalerDivisors = { 1, 2, 4, 6, 8, 10, 12, 16, 32, 64, 128, 256 };
+
         private uint BaudRateDivisor
         {
             get
@@ -546,6 +560,7 @@ namespace Antmicro.Renode.Peripherals.UART
         private IFlagRegisterField receiveDmaEnabled;
         private IFlagRegisterField enabled;
         private IValueRegisterField baudRateDivisor;
+        private IValueRegisterField prescaler;
         private IValueRegisterField stopBits;
         private IFlagRegisterField over8;
         private IFlagRegisterField receiverTimeoutInterruptEnable;
@@ -564,6 +579,7 @@ namespace Antmicro.Renode.Peripherals.UART
 
         private readonly uint frequency;
         private readonly bool lowPowerMode;
+        private readonly bool hasPrescaler;
 
         private enum Registers
         {
@@ -577,6 +593,7 @@ namespace Antmicro.Renode.Peripherals.UART
             InterruptFlagClear = 0x20,
             ReceiveData        = 0x24,
             TransmitData       = 0x28,
+            Prescaler          = 0x2C,
         }
     }
 }
