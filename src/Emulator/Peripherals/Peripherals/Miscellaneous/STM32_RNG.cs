@@ -24,6 +24,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 STM32Series.F7,
                 STM32Series.H7,
                 STM32Series.L0,
+                STM32Series.L4,
                 STM32Series.L5,
             };
             if(!supportedSeries.Contains(series))
@@ -53,7 +54,10 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                             .WithTaggedFlag("CONFIGLOCK", 31)
                         )
                         .Else(reg => reg
-                            .WithReservedBits(4, 28)
+                            .If(series == STM32Series.L4)
+                                // RM0432 Rev 9 section 32 (RNG): CED clock error detection disable
+                                .Then(r => r.WithReservedBits(4, 1).WithFlag(5, name: "CED").WithReservedBits(6, 26))
+                                .Else(r => r.WithReservedBits(4, 28))
                         )
                 },
                 {(long)Registers.Status, new DoubleWordRegister(this)
