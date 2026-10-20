@@ -58,5 +58,11 @@ namespace Antmicro.Renode.Peripherals
          * https://www.st.com/en/microcontrollers-microprocessors/stm32wba-series/documentation.html
          */
         WBA,
+
+        /* For L4 and L4+ series technical documentation and reference manuals, see
+         * https://www.st.com/en/microcontrollers-microprocessors/stm32l4-series/documentation.html
+         */
+        L4,
     }
+
 }
