@@ -18,7 +18,8 @@ namespace Antmicro.Renode.Peripherals.Timers
 {
     public class STM32F4_RTC : IDoubleWordPeripheral, IKnownSize
     {
-        public STM32F4_RTC(IMachine machine, ulong wakeupTimerFrequency = DefaultWakeupTimerFrequency)
+        public STM32F4_RTC(IMachine machine, ulong wakeupTimerFrequency = DefaultWakeupTimerFrequency, int backupRegisterCount = DefaultBackupRegisterCount,
+            bool hasL4TamperRegister = false)
         {
             mainTimer = new TimerConfig(this);
             alarmA = new AlarmConfig(this, mainTimer);
@@ -456,7 +457,9 @@ namespace Antmicro.Renode.Peripherals.Timers
                     .WithTag("CALP", 15, 1)
                     .WithReservedBits(16, 16)
                 },
-                {(long)Registers.TamperAndAlternateFunctionConfigurationRegister, new DoubleWordRegister(this)
+                {(long)Registers.TamperAndAlternateFunctionConfigurationRegister, hasL4TamperRegister
+                    ? DefineL4TamperRegister()
+                    : new DoubleWordRegister(this)
                     .WithTag("TAMP1E", 0, 1)
                     .WithTag("TAMP1TRG", 1, 1)
                     .WithTag("TAMPIE", 2, 1)
@@ -500,7 +503,7 @@ namespace Antmicro.Renode.Peripherals.Timers
                 },
             };
             // These registers have no logic, they serve as scratchpad
-            for(var reg = (long)Registers.BackupStart; reg <= (long)Registers.BackupEnd; reg += 4)
+            for(var reg = (long)Registers.BackupStart; reg < (long)Registers.BackupStart + 4 * backupRegisterCount; reg += 4)
             {
                 registerMap.Add(reg, new DoubleWordRegister(this, softResettable: false).WithValueField(0, 32));
             }
@@ -510,6 +513,35 @@ namespace Antmicro.Renode.Peripherals.Timers
         public uint ReadDoubleWord(long offset)
         {
             return registers.Read(offset);
+        }
+
+        // RTC_TAMPCR of STM32L4/L4+ (stm32l4r5xx.h RTC_TAMPCR_*). Tamper detection is not modelled;
+        // the fields keep their values for software to read back.
+        private DoubleWordRegister DefineL4TamperRegister()
+        {
+            return new DoubleWordRegister(this)
+                .WithFlag(0, name: "TAMP1E")
+                .WithFlag(1, name: "TAMP1TRG")
+                .WithFlag(2, name: "TAMPIE")
+                .WithFlag(3, name: "TAMP2E")
+                .WithFlag(4, name: "TAMP2TRG")
+                .WithFlag(5, name: "TAMP3E")
+                .WithFlag(6, name: "TAMP3TRG")
+                .WithFlag(7, name: "TAMPTS")
+                .WithValueField(8, 3, name: "TAMPFREQ")
+                .WithValueField(11, 2, name: "TAMPFLT")
+                .WithValueField(13, 2, name: "TAMPPRCH")
+                .WithFlag(15, name: "TAMPPUDIS")
+                .WithFlag(16, name: "TAMP1IE")
+                .WithFlag(17, name: "TAMP1NOERASE")
+                .WithFlag(18, name: "TAMP1MF")
+                .WithFlag(19, name: "TAMP2IE")
+                .WithFlag(20, name: "TAMP2NOERASE")
+                .WithFlag(21, name: "TAMP2MF")
+                .WithFlag(22, name: "TAMP3IE")
+                .WithFlag(23, name: "TAMP3NOERASE")
+                .WithFlag(24, name: "TAMP3MF")
+                .WithReservedBits(25, 7);
         }
 
         public void WriteDoubleWord(long offset, uint value)
@@ -731,6 +763,8 @@ namespace Antmicro.Renode.Peripherals.Timers
         private const uint UnlockKey1 = 0xCA;
         private const uint UnlockKey2 = 0x53;
         private const long DefaultWakeupTimerFrequency = 32768;
+        // F4 parts have 20 backup registers; STM32L4R5 has 32 (BKP0R-BKP31R, stm32l4r5xx.h RTC_TypeDef)
+        private const int DefaultBackupRegisterCount = 20;
         private const int DefaultSynchronuousPrescaler = 0xFF;
         private const int DefaultAsynchronuousPrescaler = 0x7F;
 
@@ -1204,7 +1238,6 @@ namespace Antmicro.Renode.Peripherals.Timers
             AlarmBSubSecondRegister = 0x48,
             OptionRegister = 0x4c,
             BackupStart = 0x50,
-            BackupEnd = 0x9c
         }
     }
 }
