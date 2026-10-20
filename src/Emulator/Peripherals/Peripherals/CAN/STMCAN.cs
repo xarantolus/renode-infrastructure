@@ -580,6 +580,13 @@ namespace Antmicro.Renode.Peripherals.CAN
                     registers.CAN_MSR.InitAck = true;
                     registers.CAN_MSR.SleepAck = false;
                 }
+                else if(registers.CAN_MCR.InitRequest == true &&
+                        registers.CAN_MCR.SleepRequest == true)
+                {
+                    // INRQ is acknowledged while SLEEP is still set: ST's HAL_CAN_Init (and Zephyr's
+                    // can_stm32_bxcan) wait for INAK before clearing SLEEP and waiting for SLAK to drop
+                    registers.CAN_MSR.InitAck = true;
+                }
                 else if(registers.CAN_MCR.SleepRequest == true &&
                         registers.CAN_MCR.InitRequest == false)
                 {
