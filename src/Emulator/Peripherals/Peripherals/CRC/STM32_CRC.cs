@@ -257,6 +257,19 @@ namespace Antmicro.Renode.Peripherals.CRC
                 }
             },
             {
+                // CRC_TypeDef has INIT (0x10) and POL (0x14); CR has POLYSIZE, REV_IN, REV_OUT;
+                // IDR is 32-bit (stm32l4r5xx.h)
+                STM32Series.L4,
+                new STM32Config()
+                {
+                    ConfigurablePoly = true,
+                    ConfigurableInitialValue = true,
+                    HasPolySizeBits = true,
+                    ReversibleIO = true,
+                    IndependentDataWidth = IndependentDataWidth.Bits32,
+                }
+            },
+            {
                 STM32Series.WBA,
                 new STM32Config()
                 {
