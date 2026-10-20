@@ -64,7 +64,8 @@ namespace Antmicro.Renode.Peripherals.Analog
         public STM32_ADC_Common(IMachine machine, double referenceVoltage, uint externalEventFrequency, int dmaChannel, IDMA dmaPeripheral,
             int watchdogCount, bool hasCalibration, int channelCount, bool hasPrescaler,
             bool hasVbatPin, bool hasChannelSequence, bool hasPowerRegister, bool hasChannelSelect,
-            bool hasOffset, bool hasDifferentialMode, SamplingTime samplingTime, bool dualMode, bool hasLinearityCalibration, bool hasChannelInjection, bool hasSeparateThresholdRegisters, ResolutionRange resolutionRange, bool hasChannelPreselection, bool hasScanDirection)
+            bool hasOffset, bool hasDifferentialMode, SamplingTime samplingTime, bool dualMode, bool hasLinearityCalibration, bool hasChannelInjection, bool hasSeparateThresholdRegisters, ResolutionRange resolutionRange, bool hasChannelPreselection, bool hasScanDirection,
+            bool hasL4RegisterLayout = false)
         {
             if(dmaPeripheral == null)
             {
@@ -90,6 +91,7 @@ namespace Antmicro.Renode.Peripherals.Analog
             this.hasChannelInjection = hasChannelInjection;
             this.resolutionRange = resolutionRange;
             this.hasChannelPreselection = hasChannelPreselection;
+            this.hasL4RegisterLayout = hasL4RegisterLayout;
 
             if(WatchdogCount < 1 || WatchdogCount > 3)
             {
@@ -548,10 +550,8 @@ namespace Antmicro.Renode.Peripherals.Analog
                         }
                     }, name: "DMACFG")
                 // When fully configurable channel sequencer is available, the SCANDIR and RES fields are swapped
-                .WithEnumField<DoubleWordRegister, Resolution>(hasChannelSequence ? 2 : 3, 2, out resolution, name: "RES")
+                .WithEnumField<DoubleWordRegister, Resolution>(ResolutionPosition(hasChannelSequence), 2, out resolution, name: "RES")
                 .WithEnumField<DoubleWordRegister, Align>(5, 1, out align, name: "ALIGN")
-                .WithTag("EXTSEL", 6, 2)
-                .WithReservedBits(9, 1)
                 .WithValueField(10, 2, writeCallback: (_, val) =>
                     {
                         // On hardware it is possible to configure on which edge should the trigger fire
@@ -578,6 +578,19 @@ namespace Antmicro.Renode.Peripherals.Analog
                 .WithFlag(22, out analogWatchdogSingleChannel, name: "AWDSGL")
                 .WithFlag(23, out analogWatchdogEnable, name: "AWDEN")
                 .WithValueField(26, 5, out analogWatchdogChannel, name: "AWDCH");
+
+            if(hasL4RegisterLayout)
+            {
+                configurationRegister1
+                    .WithFlag(2, name: "DFSDMCFG")
+                    .WithValueField(6, 4, name: "EXTSEL");
+            }
+            else
+            {
+                configurationRegister1
+                    .WithTag("EXTSEL", 6, 2)
+                    .WithReservedBits(9, 1);
+            }
 
             if(hasChannelInjection)
             {
@@ -633,19 +646,50 @@ namespace Antmicro.Renode.Peripherals.Analog
             else
             {
                 scanDirection = ScanDirection.Ascending;
-                configurationRegister1.WithReservedBits(hasChannelSequence ? 4 : 2, 1);
+                if(!hasL4RegisterLayout)
+                {
+                    configurationRegister1.WithReservedBits(hasChannelSequence ? 4 : 2, 1);
+                }
             }
 
-            var configurationRegister2 = new DoubleWordRegister(this)
-                .WithReservedBits(0, 30)
-                .WithTag("CKMODE", 30, 2);
+            var configurationRegister2 = new DoubleWordRegister(this);
+            if(hasL4RegisterLayout)
+            {
+                // Oversampling is not modelled; the fields keep their values for software to read back
+                configurationRegister2
+                    .WithFlag(0, name: "ROVSE")
+                    .WithFlag(1, name: "JOVSE")
+                    .WithValueField(2, 3, name: "OVSR")
+                    .WithValueField(5, 4, name: "OVSS")
+                    .WithFlag(9, name: "TROVS")
+                    .WithFlag(10, name: "ROVSM")
+                    .WithReservedBits(11, 21);
+            }
+            else
+            {
+                configurationRegister2
+                    .WithReservedBits(0, 30)
+                    .WithTag("CKMODE", 30, 2);
+            }
 
             var commonConfigurationRegister = new DoubleWordRegister(this)
                 .WithReservedBits(0, 16)
                 .WithValueField(16, 2, name: "CKMODE") // no actual logic, since we do not handle clock in this model
-                .WithTaggedFlag("VREFEN", 22)
-                .WithTaggedFlag("TSEN", 23)
                 .WithReservedBits(25, 7);
+
+            if(hasL4RegisterLayout)
+            {
+                // The internal channels always convert; the enables only keep their values for software to read back
+                commonConfigurationRegister
+                    .WithFlag(22, name: "VREFEN")
+                    .WithFlag(23, name: "TSEN");
+            }
+            else
+            {
+                commonConfigurationRegister
+                    .WithTaggedFlag("VREFEN", 22)
+                    .WithTaggedFlag("TSEN", 23);
+            }
 
             if(hasPrescaler)
             {
@@ -660,8 +704,16 @@ namespace Antmicro.Renode.Peripherals.Analog
 
             if(hasVbatPin)
             {
-                commonConfigurationRegister
-                    .WithTaggedFlag("VBATEN", 24);
+                if(hasL4RegisterLayout)
+                {
+                    commonConfigurationRegister
+                        .WithFlag(24, name: "VBATEN");
+                }
+                else
+                {
+                    commonConfigurationRegister
+                        .WithTaggedFlag("VBATEN", 24);
+                }
             }
             else
             {
@@ -669,7 +721,7 @@ namespace Antmicro.Renode.Peripherals.Analog
                     .WithReservedBits(24, 1);
             }
 
-            var controlRegister = new DoubleWordRegister(this)
+            var controlRegister = new DoubleWordRegister(this, hasL4RegisterLayout ? ControlResetValueL4 : 0)
                     .WithFlag(0, valueProviderCallback: _ => enabled, writeCallback: (_, val) =>
                         {
                             if(val)
@@ -705,9 +757,22 @@ namespace Antmicro.Renode.Peripherals.Analog
                                 sequenceInProgress = false;
                             }
                         }, name: "ADSTP")
-                    .WithFlag(28, out adcRegulatorEnable, name: "ADVREGEN")
+                    .WithFlag(28, out adcRegulatorEnable, name: "ADVREGEN");
+
+            if(hasL4RegisterLayout)
+            {
+                controlRegister
+                    .WithFlag(29, name: "DEEPPWD")
+                    .WithFlag(30, name: "ADCALDIF")
+                    // Calibration completes instantly, so ADCAL never reads as set
+                    .WithFlag(31, FieldMode.Read | FieldMode.Set, valueProviderCallback: _ => false, name: "ADCAL");
+            }
+            else
+            {
+                controlRegister
                     .WithReservedBits(29, 2)
                     .WithTaggedFlag("ADCAL", 31);
+            }
 
             if(hasLinearityCalibration)
             {
@@ -806,6 +871,15 @@ namespace Antmicro.Renode.Peripherals.Analog
                     .WithReservedBits(7, 25));
             }
 
+            if(hasL4RegisterLayout)
+            {
+                registers.Add((long)Registers.CalibrationFactorL4, new DoubleWordRegister(this)
+                    .WithValueField(0, 7, name: "CALFACT_S")
+                    .WithReservedBits(7, 9)
+                    .WithValueField(16, 7, name: "CALFACT_D")
+                    .WithReservedBits(23, 9));
+            }
+
             if(hasLinearityCalibration)
             {
                 // Also present on U5 family, which does not have linearity calibration
@@ -887,6 +961,15 @@ namespace Antmicro.Renode.Peripherals.Analog
             }
 
             return registers;
+        }
+
+        private int ResolutionPosition(bool hasChannelSequence)
+        {
+            if(hasL4RegisterLayout)
+            {
+                return 3;
+            }
+            return hasChannelSequence ? 2 : 3;
         }
 
         private void BuildWatchdogRegisters(Dictionary<long, DoubleWordRegister> registers, bool hasSeparateThresholdRegisters)
@@ -1142,6 +1225,9 @@ namespace Antmicro.Renode.Peripherals.Analog
 
         private readonly IDMA dma;
         private readonly int dmaChannel;
+        // STM32L4/L4+ ADC: RES at bits 4:3, 4-bit EXTSEL, DEEPPWD/ADCALDIF, oversampling in CFGR2 and
+        // CALFACT at 0xB4 (stm32l4r5xx.h ADC_TypeDef, ADC_CFGR_*, ADC_CR_*, ADC_CFGR2_*, ADC_CALFACT_*)
+        private readonly bool hasL4RegisterLayout;
         private readonly bool hasChannelSelect;
         private readonly ResolutionRange resolutionRange;
         private readonly bool hasChannelPreselection;
@@ -1155,6 +1241,8 @@ namespace Antmicro.Renode.Peripherals.Analog
         private readonly bool hasChannelInjection;
         private const int MaximumSequenceLength = 16;
         private const int MaximumInjectedSequenceLength = 4;
+        // ADC_CR resets with DEEPPWD set on STM32L4/L4+ (RM0432 Rev 9 section 21.6.3)
+        private const uint ControlResetValueL4 = 0x20000000;
 
         public enum SamplingTime
         {
@@ -1235,6 +1323,7 @@ namespace Antmicro.Renode.Peripherals.Analog
             WatchdogHighThreshold3 = 0xBC, // ADC_HTR3
             // Gap intended
             DifferentialMode2      = 0xC0, // ADC_DIFSEL
+            CalibrationFactorL4    = 0xB4, // ADC_CALFACT on STM32L4/L4+
             CalibrationFactor      = 0xC4, // ADC_CALFACT
             CalibrationFactor2     = 0xC8, // ADC_CALFACT2
             // Gap intended
