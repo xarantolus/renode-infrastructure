@@ -218,12 +218,13 @@ namespace Antmicro.Renode.Peripherals.I2C
                         )
                 }, {
                     (long)Registers.Timing, new DoubleWordRegister(this)
-                        .WithTag("SCLL", 0, 8)
-                        .WithTag("SCLH", 8, 8)
-                        .WithTag("SDADEL", 16, 4)
-                        .WithTag("SCLDEL", 20, 4)
+                        // Bus timing is not modelled; the fields keep their values for software to read back
+                        .WithValueField(0, 8, name: "SCLL")
+                        .WithValueField(8, 8, name: "SCLH")
+                        .WithValueField(16, 4, name: "SDADEL")
+                        .WithValueField(20, 4, name: "SCLDEL")
                         .WithReservedBits(24, 4)
-                        .WithTag("PRESC", 28, 4)
+                        .WithValueField(28, 4, name: "PRESC")
                 }, {
                     (long)Registers.InterruptAndStatus, new DoubleWordRegister(this, 1)
                         .WithFlag(0,
