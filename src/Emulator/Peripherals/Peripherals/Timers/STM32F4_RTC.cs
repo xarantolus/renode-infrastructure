@@ -19,7 +19,7 @@ namespace Antmicro.Renode.Peripherals.Timers
     public class STM32F4_RTC : IDoubleWordPeripheral, IKnownSize
     {
         public STM32F4_RTC(IMachine machine, ulong wakeupTimerFrequency = DefaultWakeupTimerFrequency, int backupRegisterCount = DefaultBackupRegisterCount,
-            bool hasL4TamperRegister = false)
+            bool hasTamperControlRegister = false)
         {
             mainTimer = new TimerConfig(this);
             alarmA = new AlarmConfig(this, mainTimer);
@@ -457,8 +457,8 @@ namespace Antmicro.Renode.Peripherals.Timers
                     .WithTag("CALP", 15, 1)
                     .WithReservedBits(16, 16)
                 },
-                {(long)Registers.TamperAndAlternateFunctionConfigurationRegister, hasL4TamperRegister
-                    ? DefineL4TamperRegister()
+                {(long)Registers.TamperAndAlternateFunctionConfigurationRegister, hasTamperControlRegister
+                    ? DefineTamperControlRegister()
                     : new DoubleWordRegister(this)
                     .WithTag("TAMP1E", 0, 1)
                     .WithTag("TAMP1TRG", 1, 1)
@@ -515,9 +515,9 @@ namespace Antmicro.Renode.Peripherals.Timers
             return registers.Read(offset);
         }
 
-        // RTC_TAMPCR of STM32L4/L4+ (stm32l4r5xx.h RTC_TAMPCR_*). Tamper detection is not modelled;
+        // RTC_TAMPCR of STM32L4/L4+ and STM32H7 (stm32l4r5xx.h, stm32h743xx.h RTC_TAMPCR_*). Tamper detection is not modelled;
         // the fields keep their values for software to read back.
-        private DoubleWordRegister DefineL4TamperRegister()
+        private DoubleWordRegister DefineTamperControlRegister()
         {
             return new DoubleWordRegister(this)
                 .WithFlag(0, name: "TAMP1E")
@@ -763,7 +763,7 @@ namespace Antmicro.Renode.Peripherals.Timers
         private const uint UnlockKey1 = 0xCA;
         private const uint UnlockKey2 = 0x53;
         private const long DefaultWakeupTimerFrequency = 32768;
-        // F4 parts have 20 backup registers; STM32L4R5 has 32 (BKP0R-BKP31R, stm32l4r5xx.h RTC_TypeDef)
+        // F4 parts have 20 backup registers; STM32L4R5 and STM32H743 have 32 (BKP0R-BKP31R in RTC_TypeDef)
         private const int DefaultBackupRegisterCount = 20;
         private const int DefaultSynchronuousPrescaler = 0xFF;
         private const int DefaultAsynchronuousPrescaler = 0x7F;
