@@ -100,7 +100,16 @@ namespace Antmicro.Renode.Peripherals.SD
                     if(sdCard == null)
                     {
                         this.WarningLog("Tried to send a command with index {0}, but no SD card is currently attached", commandIndex);
-                        cTimeout.Value = true;
+                        // A command without a response completes with CMDSENT even with no card;
+                        // only a command awaiting a response times out
+                        if(responseWidth.Value == ResponseWidth.NoResponse)
+                        {
+                            cmdSent.Value = true;
+                        }
+                        else
+                        {
+                            cTimeout.Value = true;
+                        }
                         UpdateInterrupts();
                         return;
                     }
