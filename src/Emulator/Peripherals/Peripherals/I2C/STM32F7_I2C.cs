@@ -321,6 +321,14 @@ namespace Antmicro.Renode.Peripherals.I2C
             {
                 return;
             }
+            // RM0432 Rev 9, 49.4.6 "Software reset": PE=0 resets the state machines and TXE, TXIS, RXNE,
+            // ADDR, NACKF, TCR, TC and STOPF
+            masterMode = false;
+            currentSlave = null;
+            txData.Clear();
+            rxData.Clear();
+            addressMatched.Value = false;
+            nackReceived.Value = false;
             stopDetection.Value = false;
             transferComplete.Value = false;
             transferCompleteReload.Value = false;
@@ -356,8 +364,10 @@ namespace Antmicro.Renode.Peripherals.I2C
             {
                 this.Log(LogLevel.Warning, "Unknown slave at address {0}.", currentSlaveAddress);
                 nackReceived.Value = true;
-                // Receiving a NACK causes an automatic STOP condition
+                // RM0432 Rev 9, 49.4.9 "Master transmitter": a NACK makes the master send a STOP, and
+                // 49.4.4 "Mode selection": generating a STOP switches it back to slave mode
                 stopDetection.Value = true;
+                masterMode = false;
             }
             else if(isReadTransfer.Value)
             {
