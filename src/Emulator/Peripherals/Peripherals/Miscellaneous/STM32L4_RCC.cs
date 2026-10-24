@@ -19,8 +19,10 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
     // Register layout: RM0432 Rev 9 section 6.4 and ST's stm32l4r5xx.h (RCC_TypeDef, RCC_*_Pos).
     // Oscillators become ready as soon as they are switched on. Only SYSCLK/HCLK is propagated
     // (to the SysTick); peripheral enable/reset bits are plain storage.
+    // Internal reset sources connect to the GPIO inputs (SoftwareResetInput, IndependentWatchdogResetInput):
+    // the RCC records the source in RCC_CSR and resets the machine.
     [AllowedTranslations(AllowedTranslation.ByteToDoubleWord | AllowedTranslation.WordToDoubleWord)]
-    public class STM32L4_RCC : BasicDoubleWordPeripheral, IKnownSize
+    public class STM32L4_RCC : BasicDoubleWordPeripheral, IKnownSize, IGPIOReceiver
     {
         public STM32L4_RCC(IMachine machine, IHasDivisibleFrequency systick = null, IPeripheral rtc = null,
             ulong hseFrequency = DefaultHseFrequency) : base(machine)
@@ -38,8 +40,40 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
 
         public override void Reset()
         {
+            // RM0432 6.1.2: a system reset keeps the RCC_CSR reset flags. The first reset is the power-on,
+            // which leaves PINRSTF | BORRSTF from the register's reset value.
+            var keptFlags = resetFlags.Value;
             base.Reset();
+            if(poweredOn)
+            {
+                // Every system reset source acts on the NRST pin (6.1.2); a reset without a recorded source
+                // (e.g. `machine Reset`) counts as a pin reset
+                resetFlags.Value = keptFlags | pendingResetFlags | PinResetFlag;
+            }
+            poweredOn = true;
+            pendingResetFlags = 0;
             UpdateClocks();
+        }
+
+        public void OnGPIO(int number, bool value)
+        {
+            if(!value)
+            {
+                return;
+            }
+            switch(number)
+            {
+            case SoftwareResetInput:
+                pendingResetFlags |= SoftwareResetFlag;
+                break;
+            case IndependentWatchdogResetInput:
+                pendingResetFlags |= IndependentWatchdogResetFlag;
+                break;
+            default:
+                this.Log(LogLevel.Warning, "Reset request on unknown input {0}", number);
+                return;
+            }
+            machine.RequestReset();
         }
 
         public long Size => 0x400;
@@ -270,11 +304,21 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private IValueRegisterField pllN;
         private IValueRegisterField pllR;
         private IValueRegisterField resetFlags;
+        private bool poweredOn;
+        private ulong pendingResetFlags;
 
         private readonly IHasDivisibleFrequency systick;
         private readonly IPeripheral rtc;
         private readonly ulong hseFrequency;
 
+
+        public const int SoftwareResetInput = 0;
+        public const int IndependentWatchdogResetInput = 1;
+
+        // RCC_CSR RSTF field (bits 31:24) values, RM0432 6.4.30
+        private const ulong PinResetFlag = 1 << 2;
+        private const ulong SoftwareResetFlag = 1 << 4;
+        private const ulong IndependentWatchdogResetFlag = 1 << 5;
         private const ulong Hsi16Frequency = 16000000;
         private const ulong DefaultHseFrequency = 16000000;
 

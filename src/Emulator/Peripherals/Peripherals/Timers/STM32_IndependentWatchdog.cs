@@ -21,7 +21,6 @@ namespace Antmicro.Renode.Peripherals.Timers
     public class STM32_IndependentWatchdog : BasicDoubleWordPeripheral, IKnownSize
     {
         //TODO: Stop timer on debug stop.
-        //TODO: Use RCC to set restart cause.
         public STM32_IndependentWatchdog(IMachine machine, ulong frequency, bool windowOption = true, uint defaultPrescaler = 0) : base(machine)
         {
             watchdogTimer = new LimitTimer(machine.ClockSource, frequency, this, "STM32_IWDG", DefaultReloadValue, workMode: WorkMode.OneShot, enabled: false, eventEnabled: true, autoUpdate: true, divider: DefaultPrescalerValue);
@@ -44,6 +43,10 @@ namespace Antmicro.Renode.Peripherals.Timers
 
         public long Size => 0x400;
 
+        // Connected to the reset controller (e.g. STM32L4_RCC) so it can record the reset source;
+        // unconnected, the watchdog resets the machine itself
+        public GPIO ResetRequest { get; } = new GPIO();
+
         private void DefineRegisters()
         {
             Registers.Key.Define(this)
@@ -56,7 +59,7 @@ namespace Antmicro.Renode.Peripherals.Timers
                     if(windowEnabled && watchdogTimer.Value > window)
                     {
                         this.Log(LogLevel.Warning, "Watchdog reloaded outside of window, triggering reset!");
-                        machine.RequestReset();
+                        RequestReset();
                     }
                     else
                     {
@@ -137,10 +140,20 @@ namespace Antmicro.Renode.Peripherals.Timers
             watchdogTimer.Limit = reloadValue;
         }
 
+        private void RequestReset()
+        {
+            if(ResetRequest.IsConnected)
+            {
+                ResetRequest.Blink();
+                return;
+            }
+            machine.RequestReset();
+        }
+
         private void TimerLimitReachedCallback()
         {
             this.Log(LogLevel.Warning, "Watchdog reset triggered!");
-            machine.RequestReset();
+            RequestReset();
         }
 
         private bool registersUnlocked;
